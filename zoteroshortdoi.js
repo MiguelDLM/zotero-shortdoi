@@ -5,6 +5,8 @@ const API_URLS = Object.freeze({
   SHORT_DOI: "https://shortdoi.org/",
   DOI_API: "https://doi.org/api/handles/",
   CROSSREF: "https://www.crossref.org/openurl?pid=zoteroDOI@wiernik.org&",
+  CROSSREF_WORKS: "https://api.crossref.org/works/",
+  OPENALEX_WORKS: "https://api.openalex.org/works/",
 });
 
 const ICONS = Object.freeze({
@@ -208,6 +210,11 @@ ShortDOI = {
         id: "zotero-itemmenu-shortdoi-check",
         labelKey: "shortdoi-menu-check-label",
         operation: "check",
+      },
+      {
+        id: "zotero-itemmenu-shortdoi-full",
+        labelKey: "shortdoi-menu-full-label",
+        operation: "full",
       },
     ];
 
@@ -456,6 +463,7 @@ ShortDOI = {
       short: `shortDOIs updated for ${this.counter} items.`,
       long: `Long DOIs updated for ${this.counter} items.`,
       check: `DOIs verified for ${this.counter} items.`,
+      full: `Full metadata updated for ${this.counter} items.`,
     };
 
     this.progressWindow.progress.setText(messages[operation] || messages.check);
@@ -583,6 +591,7 @@ ShortDOI = {
       short: "Getting shortDOIs",
       long: "Getting long DOIs",
       check: "Validating DOIs and removing extra text",
+      full: "Fetching full metadata from DOIs",
     };
 
     this.progressWindow.changeHeadline(
@@ -686,6 +695,9 @@ ShortDOI = {
       case "check":
         this.handleCheckDOIResponse(response, item, oldDOI);
         break;
+      case "full":
+        this.handleLongDOIResponse(response, item, oldDOI, true);
+        break;
     }
   },
 
@@ -705,7 +717,7 @@ ShortDOI = {
     this.updateNextItem("short");
   },
 
-  handleLongDOIResponse(response, item, oldDOI) {
+  handleLongDOIResponse(response, item, oldDOI, operation) {
     if (response.responseCode !== 1) {
       this.invalidate(item, "long");
       return;
@@ -730,7 +742,249 @@ ShortDOI = {
     this.removeAllDoiTags(item);
     item.saveTx();
     this.counter++;
-    this.updateNextItem("long");
+    
+    if (operation === true || operation === "full") {
+      this.fetchMetadata(item);
+    } else {
+      this.updateNextItem("long");
+    }
+  },
+
+  fetchMetadata(item) {
+    const doi = item.getField("DOI");
+    this.log(`Fetching metadata for DOI: ${doi}`);
+    this._doXHR(`${API_URLS.CROSSREF_WORKS}${doi}`, (req) => {
+      this._handleCrossrefWorksResponse(req, item, doi);
+    });
+  },
+
+  _doXHR(url, callback) {
+    const req = new XMLHttpRequest();
+    req.open("GET", url, true);
+    req.responseType = "json";
+    req.onerror = () => callback({ status: 0, response: null });
+    req.onreadystatechange = () => {
+      if (req.readyState === 4) callback(req);
+    };
+    req.send(null);
+  },
+
+  async _handleCrossrefWorksResponse(req, item, doi) {
+    let crossrefApplied = false;
+    let authorsSetByCrossref = false;
+    if (req.status === 200 && req.response && req.response.status === "ok" && req.response.message) {
+      try {
+        authorsSetByCrossref = this._applyCrossrefMetadata(item, req.response.message);
+        crossrefApplied = true;
+        this.log("CrossRef metadata applied");
+      } catch (e) {
+        this.log(`CrossRef apply error: ${e}`);
+      }
+    } else {
+      this.log(`CrossRef returned status ${req.status}, falling back to OpenAlex`);
+    }
+
+    // Always call OpenAlex to fill gaps (authors, abstract, pages, language, etc.)
+    this._doXHR(`${API_URLS.OPENALEX_WORKS}https://doi.org/${doi}`, (req2) => {
+      this._handleOpenAlexResponse(req2, item, crossrefApplied, authorsSetByCrossref);
+    });
+  },
+
+  async _handleOpenAlexResponse(req, item, crossrefApplied, authorsSetByCrossref) {
+    if (req.status === 200 && req.response) {
+      try {
+        this._applyOpenAlexMetadata(item, req.response, crossrefApplied, authorsSetByCrossref);
+        this.log("OpenAlex metadata applied");
+      } catch (e) {
+        this.log(`OpenAlex apply error: ${e}`);
+      }
+    } else {
+      this.log(`OpenAlex returned status ${req.status}`);
+    }
+
+    try {
+      await item.saveTx();
+      this.log("Metadata saved");
+    } catch (e) {
+      this.log(`Error saving: ${e}`);
+    }
+
+    this.updateNextItem("full");
+  },
+
+  _applyCrossrefMetadata(item, msg) {
+    let authorsSet = false;
+    if (msg.title && msg.title.length > 0) this._setField(item, "title", msg.title[0]);
+    if (msg.subtitle && msg.subtitle.length > 0) this._setField(item, "shortTitle", msg.subtitle[0]);
+
+    const ct = msg["container-title"];
+    if (ct && ct.length > 0) this._setField(item, "publicationTitle", ct[0]);
+
+    if (msg.volume) this._setField(item, "volume", msg.volume);
+    if (msg.issue) this._setField(item, "issue", msg.issue);
+    if (msg.page) this._setField(item, "pages", msg.page);
+    if (msg.publisher) this._setField(item, "publisher", msg.publisher);
+    if (msg.URL) this._setField(item, "url", msg.URL);
+    if (msg.language) this._setField(item, "language", msg.language);
+    if (msg["page-count"]) this._setField(item, "numPages", String(msg["page-count"]));
+    if (msg.edition) this._setField(item, "edition", String(msg.edition));
+    if (msg.ISSN && msg.ISSN.length > 0) this._setField(item, "ISSN", msg.ISSN[0]);
+    if (msg.ISBN && msg.ISBN.length > 0) this._setField(item, "ISBN", msg.ISBN[0]);
+
+    if (msg.abstract) {
+      this._setField(item, "abstractNote", msg.abstract.replace(/<[^>]+>/g, "").trim());
+    }
+
+    const issued = msg.issued || msg["published-print"] || msg["published-online"];
+    if (issued && issued["date-parts"] && issued["date-parts"][0]) {
+      const [year, month, day] = issued["date-parts"][0];
+      if (year) {
+        let d = String(year);
+        if (month) d += `-${String(month).padStart(2, "0")}`;
+        if (day) d += `-${String(day).padStart(2, "0")}`;
+        this._setField(item, "date", d);
+      }
+    }
+
+    if (msg.author && msg.author.length > 0) {
+      const creators = msg.author.map((a) =>
+        a.name
+          ? { creatorType: "author", name: a.name }
+          : { creatorType: "author", firstName: a.given || "", lastName: a.family || "" }
+      );
+      if (creators.length > 0) {
+        item.setCreators(creators);
+        authorsSet = true;
+      }
+    }
+    return authorsSet;
+  },
+
+  _applyOpenAlexMetadata(item, msg, crossrefApplied, authorsSetByCrossref) {
+    // Fill in title only if CrossRef didn't provide one
+    if (!crossrefApplied && msg.title) this._setField(item, "title", msg.title);
+    if (!crossrefApplied && msg.display_name) this._setField(item, "title", msg.display_name);
+
+    // Language (often more reliable in OpenAlex)
+    if (msg.language) this._setField(item, "language", msg.language);
+
+    // Authors - fill if not already set or deduplicate
+    const currentCreators = item.getCreators();
+    if (msg.authorships && msg.authorships.length > 0) {
+      const newCreators = [];
+      const seenNames = new Set();
+      
+      // If CrossRef already added creators, add them to seenNames to avoid duplicates
+      if (currentCreators && currentCreators.length > 0) {
+        currentCreators.forEach(c => {
+          const fullName = (c.firstName + " " + c.lastName).trim().toLowerCase() || (c.name || "").toLowerCase();
+          seenNames.add(fullName);
+        });
+      }
+
+      msg.authorships.forEach((a) => {
+        let rawName = a.raw_author_name || (a.author && a.author.display_name) || "";
+        if (!rawName) return;
+
+        // Basic deduplication
+        const normalized = rawName.trim().toLowerCase();
+        if (seenNames.has(normalized)) return;
+        seenNames.add(normalized);
+
+        // Name parsing with suffix handling
+        let parts = rawName.split(/\s+/).filter(p => p.length > 0);
+        if (parts.length === 0) return;
+
+        let firstName = "";
+        let lastName = "";
+        const suffixes = ["jr.", "jr", "sr.", "sr", "ii", "iii", "iv", "v"];
+
+        if (parts.length === 1) {
+          lastName = parts[0];
+        } else {
+          // Check if last part is a suffix
+          let lastPart = parts[parts.length - 1].toLowerCase();
+          if (suffixes.includes(lastPart)) {
+            const suffix = parts.pop();
+            lastName = parts.pop() || "";
+            firstName = (parts.join(" ") + " " + suffix).trim();
+          } else {
+            lastName = parts.pop() || "";
+            firstName = parts.join(" ");
+          }
+        }
+
+        newCreators.push({ creatorType: "author", firstName, lastName });
+      });
+
+      if (newCreators.length > 0) {
+        if (!authorsSetByCrossref) {
+          // If CrossRef didn't find any authors, assume OpenAlex is the authoritative source
+          // and replace the manual/old authors.
+          item.setCreators(newCreators);
+        } else {
+          // If CrossRef already provided authors, just append any additional unique ones from OpenAlex
+          item.setCreators([...currentCreators, ...newCreators]);
+        }
+      }
+    }
+
+    // Abstract from inverted index (reconstruct it)
+    if (!item.getField("abstractNote") && msg.abstract_inverted_index) {
+      const abstract = this._reconstructAbstract(msg.abstract_inverted_index);
+      if (abstract) this._setField(item, "abstractNote", abstract);
+    }
+
+    // Pages from biblio
+    if (!item.getField("pages") && msg.biblio) {
+      const { first_page, last_page } = msg.biblio;
+      if (first_page && last_page) this._setField(item, "pages", `${first_page}-${last_page}`);
+      else if (first_page) this._setField(item, "pages", first_page);
+    }
+
+    // Journal from primary_location
+    if (!item.getField("publicationTitle") && msg.primary_location && msg.primary_location.source) {
+      this._setField(item, "publicationTitle", msg.primary_location.source.display_name);
+    }
+
+    // ISSN from source
+    if (!item.getField("ISSN") && msg.primary_location && msg.primary_location.source && msg.primary_location.source.issn_l) {
+      this._setField(item, "ISSN", msg.primary_location.source.issn_l);
+    }
+
+    // Year/date
+    if (!item.getField("date") && msg.publication_date) {
+      this._setField(item, "date", msg.publication_date);
+    }
+
+    // PDF URL
+    if (msg.primary_location && msg.primary_location.pdf_url) {
+      this._setField(item, "url", msg.primary_location.pdf_url);
+    } else if (msg.best_oa_location && msg.best_oa_location.pdf_url) {
+      this._setField(item, "url", msg.best_oa_location.pdf_url);
+    }
+  },
+
+  _reconstructAbstract(invertedIndex) {
+    if (!invertedIndex || typeof invertedIndex !== "object") return null;
+    const words = [];
+    for (const [word, positions] of Object.entries(invertedIndex)) {
+      for (const pos of positions) {
+        words[pos] = word;
+      }
+    }
+    return words.join(" ");
+  },
+
+  _setField(item, fieldName, value) {
+    try {
+      if (!Zotero.ItemFields.isValidForType(
+        Zotero.ItemFields.getID(fieldName), item.itemTypeID
+      )) return;
+      item.setField(fieldName, value);
+    } catch (e) {
+      this.log(`Could not set field "${fieldName}": ${e}`);
+    }
   },
 
   handleCheckDOIResponse(response, item, oldDOI) {
@@ -829,6 +1083,11 @@ ShortDOI = {
 
     if (operation === "short") {
       this.updateItem(item, operation);
+    } else if (operation === "full") {
+      this.removeAllDoiTags(item);
+      item.saveTx();
+      this.counter++;
+      this.fetchMetadata(item);
     } else {
       this.removeAllDoiTags(item);
       item.saveTx();

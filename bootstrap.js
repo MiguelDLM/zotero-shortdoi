@@ -30,6 +30,7 @@ async function startup({
     ["content", "zoteroshortdoi", "content/"],
     ["locale", "zoteroshortdoi", "en-US", "locale/en-US/"],
     ["locale", "zoteroshortdoi", "de", "locale/de/"],
+    ["locale", "zoteroshortdoi", "es-ES", "locale/es-ES/"],
   ]);
   log("Registered chrome");
 
