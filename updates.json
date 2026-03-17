@@ -11,16 +11,6 @@
               "strict_max_version": "8.0.*"
             }
           }
-        },
-        {
-          "version": "1.6.0",
-          "update_link": "https://github.com/bwiernik/zotero-shortdoi/releases/download/v1.6.0/zotero-doi-manager-1.6.0.xpi",
-          "applications": {
-            "zotero": {
-              "strict_min_version": "6.999",
-              "strict_max_version": "7.0.*"
-            }
-          }
         }
       ]
     }
