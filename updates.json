@@ -3,6 +3,16 @@
     "zoteroshortdoi@wiernik.org": {
       "updates": [
         {
+          "version": "1.7.1",
+          "update_link": "https://github.com/MiguelDLM/zotero-shortdoi/releases/download/v1.7.1/zotero-doi-manager-1.7.1.xpi",
+          "applications": {
+            "zotero": {
+              "strict_min_version": "7.0",
+              "strict_max_version": "8.0.*"
+            }
+          }
+        },
+        {
           "version": "1.7.0",
           "update_link": "https://github.com/MiguelDLM/zotero-shortdoi/releases/download/v1.7.0/zotero-doi-manager-1.7.0.xpi",
           "applications": {
