@@ -1,3 +1,7 @@
+[![zotero target version](https://img.shields.io/badge/Zotero-9-green?style=flat-square&logo=zotero&logoColor=CC2936)](https://www.zotero.org)
+[![License](https://img.shields.io/github/license/MiguelDLM/zotero-shortdoi.svg)](https://github.com//MiguelDLM/zotero-shortdoi/blob/main/LICENSE)
+[![Github All Releases](https://img.shields.io/github/downloads/MiguelDLM/zotero-shortdoi/total.svg)](https://github.com/MiguelDLM/zotero-shortdoi/releases)
+
 # Zotero DOI Manager
 
 This is an add-on for Zotero, a research source management tool. The add-on can auto-fetch DOI names for journal articles using the CrossRef API, as well as look up shortDOI names using http://shortdoi.org. The add-on additionally verifies that stored DOIs are valid and marks invalid DOIs.
