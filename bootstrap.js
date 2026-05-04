@@ -1,5 +1,5 @@
 // Startup -- load Zotero and constants
-// Zotero 8 only: Zotero, Services, Cc, Ci are automatically available in bootstrap scope
+// Zotero 8/9: Zotero, Services, Cc, Ci are automatically available in bootstrap scope
 
 var ShortDOI;
 var chromeHandle;

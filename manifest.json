@@ -1,7 +1,7 @@
 {
   "manifest_version": 2,
   "name": "DOI Manager-Plus",
-  "version": "1.7.1",
+  "version": "1.7.2",
   "description": "Plugin for fetching and validating DOI and shortDOI names; additional metadata from CrossRef and OpenAlex",
   "author": "MiguelDLM forked from Brenton M. Wiernik version",
   "icons": {
@@ -13,7 +13,7 @@
       "id": "zoteroshortdoi@wiernik.org",
       "update_url": "https://raw.githubusercontent.com/MiguelDLM/zotero-shortdoi/master/updates.json",
       "strict_min_version": "7.0",
-      "strict_max_version": "8.0.*"
+      "strict_max_version": "9.0.*"
     }
   }
 }
